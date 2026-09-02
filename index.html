@@ -11,7 +11,7 @@
     @media(min-width: 768px) { .container { grid-template-columns: 1fr 1fr; } }
 
     .card { background: #ffffff; border: 1.5px solid #000000; border-radius: 8px; padding: 12px; }
-    .card-title { font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #000; padding-bottom: 4px; }
+    .card-title { font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0[...]
 
     .form-group { margin-bottom: 10px; }
     label { display: block; font-size: 11px; font-weight: 700; margin-bottom: 4px; color: #000; }
@@ -299,6 +299,13 @@
   /* ---------- CONFIG ---------- */
   // TODO: paste your Apps Script Web App URL here after redeploying with doPost added
   const ENDPOINT_URL = 'https://script.google.com/macros/s/AKfycbx8x_TdGe50T-gbyzpEB3_3Uulm3pRA_ApwrjGb-oYqQFy5BdGllOKTN9bsqLvKi8LYbQ/exec';
+
+  /* ---------- CROSS-ORIGIN MESSAGING TO APPS SCRIPT ---------- */
+  function postToParent(data) {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(data, '*');
+    }
+  }
 
   /* ---------- STATE ---------- */
   let formData = {
@@ -614,6 +621,12 @@
     document.getElementById('voiceConfirmRow').style.display = 'none';
     document.getElementById('voiceStatus').textContent = 'Form filled — tap Save Hole Data, or correct any field below first.';
     lastParseResult = null;
+
+    // SEND PARSED DATA TO APPS SCRIPT
+    postToParent({
+      type: 'voiceParsed',
+      data: r
+    });
   }
 
   function clickOpt(groupId, field, value) {
