@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GitHub Pages Mic Test</title>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, sans-serif; }
+    body { background: #fff; color: #000; margin: 0; padding: 16px; }
+    h2 { font-size: 16px; margin: 0 0 16px; }
+    .row { border: 1.5px solid #000; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+    .label { font-weight: 800; font-size: 12px; text-transform: uppercase; margin-bottom: 4px; }
+    .val { font-size: 14px; font-weight: 600; word-break: break-word; }
+    .pass { color: #0a0; }
+    .fail { color: #c00; }
+    .pending { color: #888; }
+    button { width: 100%; padding: 14px; background: #000; color: #fff; border: none; border-radius: 6px; font-weight: 800; font-size: 14px; margin-bottom: 16px; }
+    #transcript { min-height: 40px; border: 1.5px dashed #000; border-radius: 8px; padding: 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h2>GitHub Pages Mic Test (real HTTPS origin)</h2>
+  <button onclick="runTest()">Run Test</button>
+
+  <div class="row">
+    <div class="label">1. Context / origin</div>
+    <div class="val" id="ctxResult">—</div>
+  </div>
+
+  <div class="row">
+    <div class="label">2. getUserMedia() permission</div>
+    <div class="val pending" id="micResult">Not run yet</div>
+  </div>
+
+  <div class="row">
+    <div class="label">3. SpeechRecognition available</div>
+    <div class="val pending" id="srAvailResult">Not run yet</div>
+  </div>
+
+  <div class="row">
+    <div class="label">4. SpeechRecognition live test — say something after tapping Run</div>
+    <div class="val pending" id="srResult">Not run yet</div>
+    <div id="transcript"></div>
+  </div>
+
+  <script>
+    function setResult(id, text, cls) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = 'val ' + cls;
+    }
+
+    async function runTest() {
+      try {
+        const inIframe = window.self !== window.top;
+        setResult('ctxResult', 'href=' + location.href + ' | inIframe=' + inIframe, 'val');
+      } catch (e) {
+        setResult('ctxResult', 'Cross-origin iframe (cannot read parent): ' + e.message, 'fail');
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setResult('micResult', 'FAIL — navigator.mediaDevices.getUserMedia not defined in this context', 'fail');
+      } else {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          setResult('micResult', 'PASS — permission granted, mic stream acquired', 'pass');
+          stream.getTracks().forEach(t => t.stop());
+        } catch (e) {
+          setResult('micResult', 'FAIL — ' + e.name + ': ' + e.message, 'fail');
+        }
+      }
+
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        setResult('srAvailResult', 'FAIL — SpeechRecognition/webkitSpeechRecognition not defined', 'fail');
+        setResult('srResult', 'Skipped (API unavailable)', 'fail');
+        return;
+      }
+      setResult('srAvailResult', 'PASS — constructor found', 'pass');
+
+      try {
+        const recognition = new SR();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        setResult('srResult', 'Listening... speak now', 'pending');
+
+        recognition.onresult = (event) => {
+          const text = event.results[0][0].transcript;
+          setResult('srResult', 'PASS — heard: "' + text + '"', 'pass');
+          document.getElementById('transcript').textContent = text;
+        };
+
+        recognition.onerror = (event) => {
+          setResult('srResult', 'FAIL — onerror: ' + event.error, 'fail');
+        };
+
+        recognition.onend = () => {
+          const el = document.getElementById('srResult');
+          if (el.textContent === 'Listening... speak now') {
+            setResult('srResult', 'FAIL — ended with no result (timeout or silent block)', 'fail');
+          }
+        };
+
+        recognition.start();
+      } catch (e) {
+        setResult('srResult', 'FAIL — threw on start(): ' + e.message, 'fail');
+      }
+    }
+  </script>
+</body>
+</html>
