@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Putting Input</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    text-align: center;
+    padding: 20px;
+    max-width: 500px;
+    margin: 0 auto;
+    background: #f4f4f4;
+  }
+  h2 { margin-bottom: 4px; }
+  #syncBadge {
+    display: inline-block;
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: #ffe08a;
+    color: #5c4400;
+    margin-bottom: 10px;
+  }
+  #syncBadge.clear { background: #c8f0c8; color: #205020; }
+  #promptLabel {
+    font-size: 15px;
+    color: #666;
+    margin-top: 20px;
+  }
+  #promptText {
+    font-size: 26px;
+    font-weight: bold;
+    margin: 10px 0 20px 0;
+    min-height: 34px;
+  }
+  #status { font-size: 16px; margin-bottom: 15px; color: #333; }
+  button#micButton {
+    font-size: 22px;
+    padding: 20px 40px;
+    border-radius: 50%;
+    border: none;
+    background: #111;
+    color: white;
+    width: 110px;
+    height: 110px;
+    cursor: pointer;
+  }
+  button#micButton.listening { background: #c0392b; }
+  #heard {
+    margin-top: 20px;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    min-height: 30px;
+    font-size: 17px;
+    background: white;
+  }
+  #manualEntry { margin-top: 14px; }
+  #manualEntry input, #manualEntry select {
+    font-size: 18px;
+    padding: 8px;
+    width: 60%;
+  }
+  #reviewScreen, #manualEntry { display: none; }
+  #reviewScreen table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    margin-top: 10px;
+  }
+  #reviewScreen td {
+    padding: 18px 12px;
+    border-bottom: 3px solid #333;
+    text-align: left;
+    font-size: 26px;
+    font-weight: 700;
+  }
+  #reviewScreen td.label { color: #444; width: 48%; font-weight: 700; font-size: 20px; }
+  #reviewScreen tr { cursor: pointer; }
+  #reviewScreen tr:active { background: #f0f0f0; }
+  .bigBtn {
+    font-size: 20px;
+    padding: 16px;
+    width: 100%;
+    border-radius: 10px;
+    border: none;
+    margin-top: 16px;
+    cursor: pointer;
+  }
+  #submitBtn { background: #111; color: white; }
+  #holeNum { font-size: 14px; color: #888; }
+  #roundStats { font-size: 17px; font-weight: 700; margin: 4px 0 10px 0; color: #111; }
+</style>
+</head>
+<body>
+
+<h2>🎤 Voice Putting Input</h2>
+<div id="holeNum">Hole 1</div>
+<div id="roundStats">Thru 0 · E &nbsp;|&nbsp; Putts: 0</div>
+<div id="syncBadge">0 pending</div>
+
+<div id="captureScreen">
+  <div id="promptLabel">Field</div>
+  <div id="promptText">Approach Distance (ft)?</div>
+  <div id="status">Ready</div>
+  <button id="micButton">🎤</button>
+  <div id="heard">Say your answer</div>
+  <div id="manualEntry"></div>
+</div>
+
+<div id="reviewScreen">
+  <h3>Review Hole</h3>
+  <table id="reviewTable"></table>
+  <button id="submitBtn" class="bigBtn">✅ Submit (say "submit")</button>
+</div>
+
+<script>
+/* ===================== CONFIG ===================== */
+// TODO: paste your GAS Web App /exec URL here once created
+const SHEET_ENDPOINT = "https://script.google.com/macros/s/AKfycbw03uWeAGOqB40JJXghtPm4WHBWO5zhx4AP0-iEwZ_kdFzfnHq8UTDAM3E8TJXj145l/exec";
+const QUEUE_KEY = "voicePuttingQueue";
+
+/* ===================== STATE MACHINE ===================== */
+// Each step: id, label, type ('number' | 'choice'), choices (for choice type), next (id or function)
+const STEPS = {
+  par:        { label: "Par", type: "choice", choices: ["3","4","5"], next: () => "approach" },
+  approach:   { label: "Approach Distance (yds)", type: "number", next: () => "gir" },
+  gir:        { label: "GIR Hit?", type: "choice", choices: ["Yes","No"],
+                next: (val) => val === "Yes" ? "putt1" : "chipped" },
+  chipped:    { label: "Chipped In?", type: "choice", choices: ["Yes","No"],
+                next: (val) => val === "Yes" ? "totalPutts" : "putt1" },
+  putt1:      { label: "1st Putt (length, break, outcome)", type: "combo",
+                next: (val) => val.outcome === "Made It" ? "totalPutts" : "putt2" },
+  putt2:      { label: "2nd Putt (length, break, outcome)", type: "combo",
+                next: (val) => val.outcome === "Made It" ? "totalPutts" : "putt3" },
+  putt3:      { label: "3rd Putt", type: "choice", choices: ["Made It","Picked Up"], next: () => "totalPutts" },
+  totalPutts: { label: "Total Putts", type: "number", next: () => "holeScore" },
+  holeScore:  { label: "Hole Score", type: "number", next: () => "review" }
+};
+
+let currentStep = "par";
+let holeData = {};
+let holeNumber = 1;
+let roundCourse = "";
+let roundScoreTotal = 0;
+let roundParTotal = 0;
+let roundPuttsTotal = 0;
+
+/* ===================== SPEECH RECOGNITION ===================== */
+const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+if (Speech) {
+  recognition = new Speech();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = "en-US";
+
+  recognition.onstart = () => {
+    setStatus("🎤 Listening...");
+    document.getElementById("micButton").classList.add("listening");
+  };
+  recognition.onerror = (e) => setStatus("❌ Error: " + e.error);
+  recognition.onend = () => document.getElementById("micButton").classList.remove("listening");
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    document.getElementById("heard").innerText = transcript;
+    handleAnswer(transcript);
+  };
+} else {
+  setStatus("❌ Speech recognition not supported in this browser.");
+}
+
+document.getElementById("micButton").addEventListener("click", () => {
+  if (currentStep === "review") return; // review uses submit voice separately
+  if (!recognition) { alert("Speech recognition not supported."); return; }
+  setStatus("Starting mic...");
+  recognition.start();
+});
+
+/* ===================== PARSING ===================== */
+const NUM_WORDS = {
+  zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10,
+  eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16, seventeen:17,
+  eighteen:18, nineteen:19, twenty:20, thirty:30, forty:40, fifty:50
+};
+
+function parseNumber(text) {
+  const cleaned = text.toLowerCase().trim();
+  const digitMatch = cleaned.match(/\d+/);
+  if (digitMatch) return parseInt(digitMatch[0], 10);
+  // try word numbers, including compounds like "twenty five"
+  const words = cleaned.replace(/-/g," ").split(" ");
+  let total = 0, found = false;
+  for (const w of words) {
+    if (NUM_WORDS[w] !== undefined) { total += NUM_WORDS[w]; found = true; }
+  }
+  return found ? total : null;
+}
+
+const BREAK_CHOICES = ["L to R","R to L","None"];
+const OUTCOME_CHOICES = ["Made It","Short","Long Low","Long High"];
+
+function parseCombo(text) {
+  // Expects something like "21 feet, left to right, long low"
+  const cleaned = text.toLowerCase();
+  const length = parseNumber(cleaned);
+
+  // find break: look for phrase matches first (handles "left to right" spoken form)
+  let brk = null;
+  if (/left to right/.test(cleaned)) brk = "L to R";
+  else if (/right to left/.test(cleaned)) brk = "R to L";
+  else brk = parseChoice(cleaned, BREAK_CHOICES) || "None";
+
+  const outcome = parseChoice(cleaned, OUTCOME_CHOICES);
+
+  if (length === null || outcome === null) return null;
+  return { length, break: brk, outcome };
+}
+
+function parseChoice(text, choices) {
+  const cleaned = text.toLowerCase().trim();
+  let best = null, bestScore = 0;
+  for (const choice of choices) {
+    const c = choice.toLowerCase();
+    let score = 0;
+    if (cleaned === c) score = 100;
+    else if (cleaned.includes(c)) score = 50;
+    else {
+      // token overlap fallback
+      const cTokens = c.split(" ");
+      const tTokens = cleaned.split(" ");
+      score = cTokens.filter(t => tTokens.includes(t)).length * 10;
+    }
+    if (score > bestScore) { bestScore = score; best = choice; }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+/* ===================== FLOW CONTROL ===================== */
+function setStatus(msg) { document.getElementById("status").innerText = msg; }
+
+function showStep(stepId) {
+  currentStep = stepId;
+  if (stepId === "review") { showReview(); return; }
+  const step = STEPS[stepId];
+  document.getElementById("promptLabel").innerText =
+    step.type === "number" ? "Enter a number" :
+    step.type === "combo" ? "Say length, break, outcome" : "Choose one";
+  document.getElementById("promptText").innerText = step.label + "?";
+  document.getElementById("heard").innerText = "Say your answer";
+  setStatus("Ready");
+  renderManualEntry(step);
+}
+
+function renderManualEntry(step) {
+  const container = document.getElementById("manualEntry");
+  container.style.display = "block";
+  container.innerHTML = "";
+  if (step.type === "number") {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.placeholder = "or type manually";
+    container.appendChild(input);
+    const btn = document.createElement("button");
+    btn.innerText = "OK";
+    btn.onclick = () => { if (input.value !== "") handleAnswer(input.value); };
+    container.appendChild(btn);
+  } else if (step.type === "combo") {
+    const lenInput = document.createElement("input");
+    lenInput.type = "number";
+    lenInput.placeholder = "length";
+    lenInput.style.width = "28%";
+    container.appendChild(lenInput);
+    const breakSel = document.createElement("select");
+    BREAK_CHOICES.forEach(c => { const o = document.createElement("option"); o.value = c; o.innerText = c; breakSel.appendChild(o); });
+    container.appendChild(breakSel);
+    const outcomeSel = document.createElement("select");
+    OUTCOME_CHOICES.forEach(c => { const o = document.createElement("option"); o.value = c; o.innerText = c; outcomeSel.appendChild(o); });
+    container.appendChild(outcomeSel);
+    const btn = document.createElement("button");
+    btn.innerText = "OK";
+    btn.onclick = () => {
+      if (lenInput.value === "") return;
+      handleComboAnswer({ length: parseInt(lenInput.value, 10), break: breakSel.value, outcome: outcomeSel.value });
+    };
+    container.appendChild(btn);
+  } else {
+    step.choices.forEach(choice => {
+      const btn = document.createElement("button");
+      btn.innerText = choice;
+      btn.style.margin = "4px";
+      btn.style.fontSize = "14px";
+      btn.style.padding = "8px 10px";
+      btn.onclick = () => handleAnswer(choice);
+      container.appendChild(btn);
+    });
+  }
+}
+
+function handleAnswer(rawText) {
+  const step = STEPS[currentStep];
+  let value;
+  if (step.type === "number") {
+    value = parseNumber(rawText);
+    if (value === null) { setStatus("❌ Couldn't parse a number, try again"); return; }
+  } else if (step.type === "combo") {
+    value = parseCombo(rawText);
+    if (value === null) { setStatus("❌ Couldn't catch length/break/outcome, try again"); return; }
+    handleComboAnswer(value);
+    return;
+  } else {
+    value = parseChoice(rawText, step.choices);
+    if (value === null) { setStatus("❌ Didn't catch that, try again"); return; }
+  }
+  holeData[currentStep] = value;
+  const nextStep = step.next(value);
+  showStep(nextStep);
+}
+
+function handleComboAnswer(comboVal) {
+  const step = STEPS[currentStep];
+  // flatten into holeData as prefix_len / prefix_break / prefix_outcome
+  const prefix = currentStep; // "putt1" or "putt2"
+  holeData[prefix + "_len"] = comboVal.length;
+  holeData[prefix + "_break"] = comboVal.break;
+  holeData[prefix + "_outcome"] = comboVal.outcome;
+  const nextStep = step.next(comboVal);
+  showStep(nextStep);
+}
+
+/* ===================== REVIEW SCREEN ===================== */
+const FIELD_LABELS = {
+  par: "Par", approach: "Approach Distance", gir: "GIR Hit", chipped: "Chipped In",
+  putt1_len: "1st Putt Length", putt1_break: "1st Putt Break", putt1_outcome: "1st Putt Outcome",
+  putt2_len: "2nd Putt Length", putt2_break: "2nd Putt Break", putt2_outcome: "2nd Putt Outcome",
+  putt3: "3rd Putt", totalPutts: "Total Putts", holeScore: "Hole Score"
+};
+// maps a flattened review field back to the combo step it belongs to, for tap-to-fix
+const FIELD_TO_STEP = {
+  putt1_len: "putt1", putt1_break: "putt1", putt1_outcome: "putt1",
+  putt2_len: "putt2", putt2_break: "putt2", putt2_outcome: "putt2"
+};
+
+function showReview() {
+  document.getElementById("captureScreen").style.display = "none";
+  document.getElementById("reviewScreen").style.display = "block";
+  const table = document.getElementById("reviewTable");
+  table.innerHTML = "";
+  Object.keys(holeData).forEach(key => {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td class="label">${FIELD_LABELS[key] || key}</td><td>${holeData[key]}</td>`;
+    row.onclick = () => { document.getElementById("reviewScreen").style.display = "none";
+                           document.getElementById("captureScreen").style.display = "block";
+                           showStep(FIELD_TO_STEP[key] || key); };
+    table.appendChild(row);
+  });
+  setStatus("Review, then tap Submit or say \"submit\"");
+  if (recognition) {
+    recognition.onresult = (event) => {
+      const t = event.results[0][0].transcript.toLowerCase();
+      if (t.includes("submit")) submitHole();
+      else recognition.onresult(event); // fallback ignored
+    };
+  }
+}
+
+document.getElementById("submitBtn").addEventListener("click", submitHole);
+
+function submitHole() {
+  const par = parseInt(holeData.par, 10);
+  const score = holeData.holeScore;
+  roundScoreTotal += score;
+  roundParTotal += par;
+  roundPuttsTotal += holeData.totalPutts;
+  updateRoundStats();
+
+  const payload = {
+    "Date": new Date().toLocaleDateString(),
+    "Round/Course": roundCourse,
+    "Hole": holeNumber,
+    "PAR": par,
+    "Approach": holeData.approach,
+    "GIR": holeData.gir,
+    "P1 Length": holeData.putt1_len ?? "",
+    "P1 Break": holeData.putt1_break ?? "",
+    "P1 Outcome": holeData.putt1_outcome ?? "",
+    "P2 Length": holeData.putt2_len ?? "",
+    "P2 Break": holeData.putt2_break ?? "",
+    "P2 Outcome": holeData.putt2_outcome ?? "",
+    "3rd+ Putts": holeData.putt3 ?? "",
+    "Total Putts": holeData.totalPutts,
+    "Hole Score": holeData.holeScore
+  };
+  queueHole(payload);
+  attemptSync();
+  holeNumber++;
+  holeData = {};
+  document.getElementById("holeNum").innerText = "Hole " + holeNumber;
+  document.getElementById("reviewScreen").style.display = "none";
+  document.getElementById("captureScreen").style.display = "block";
+  // restore normal onresult handler for next hole
+  if (recognition) {
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      document.getElementById("heard").innerText = transcript;
+      handleAnswer(transcript);
+    };
+  }
+  showStep("par");
+}
+
+function updateRoundStats() {
+  const diff = roundScoreTotal - roundParTotal;
+  const diffLabel = diff === 0 ? "E" : (diff > 0 ? "+" + diff : diff.toString());
+  const holesPlayed = holeNumber; // holeNumber not yet incremented at call time in submitHole flow below
+  document.getElementById("roundStats").innerText =
+    `Thru ${holeNumber} · ${diffLabel}  |  Putts: ${roundPuttsTotal}`;
+}
+
+/* ===================== OFFLINE QUEUE ===================== */
+function getQueue() {
+  return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
+}
+function saveQueue(q) {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  updateBadge();
+}
+function queueHole(payload) {
+  const q = getQueue();
+  q.push(payload);
+  saveQueue(q);
+}
+function updateBadge() {
+  const n = getQueue().length;
+  const badge = document.getElementById("syncBadge");
+  badge.innerText = n === 0 ? "✅ All synced" : n + " pending sync";
+  badge.className = n === 0 ? "clear" : "";
+}
+
+async function attemptSync() {
+  if (!navigator.onLine) return;
+  const q = getQueue();
+  if (q.length === 0) return;
+  const remaining = [];
+  for (const item of q) {
+    try {
+      await fetch(SHEET_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(item)
+      });
+      // no-cors/text-plain means we can't read the response reliably;
+      // treat the fetch not throwing as success.
+    } catch (err) {
+      remaining.push(item);
+    }
+  }
+  saveQueue(remaining);
+}
+
+window.addEventListener("online", attemptSync);
+setInterval(attemptSync, 30000);
+updateBadge();
+attemptSync();
+
+/* ===================== SERVICE WORKER (offline page load) ===================== */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+/* ===================== INIT ===================== */
+roundCourse = window.prompt("Round / Course name?") || "Unnamed Round";
+showStep("par");
+</script>
+</body>
+</html>
