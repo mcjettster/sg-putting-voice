@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Putting Input</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, sans-serif;
+    text-align: center;
+    padding: 20px;
+    max-width: 500px;
+    margin: 0 auto;
+    background: #f4f4f4;
+  }
+  h2 { margin-bottom: 4px; }
+  #syncBadge {
+    display: inline-block;
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: #ffe08a;
+    color: #5c4400;
+    margin-bottom: 10px;
+  }
+  #syncBadge.clear { background: #c8f0c8; color: #205020; }
+  #promptLabel {
+    font-size: 15px;
+    color: #666;
+    margin-top: 20px;
+  }
+  #promptText {
+    font-size: 26px;
+    font-weight: bold;
+    margin: 10px 0 20px 0;
+    min-height: 34px;
+  }
+  #status { font-size: 16px; margin-bottom: 15px; color: #333; }
+  button#micButton {
+    font-size: 22px;
+    padding: 20px 40px;
+    border-radius: 50%;
+    border: none;
+    background: #111;
+    color: white;
+    width: 110px;
+    height: 110px;
+    cursor: pointer;
+  }
+  button#micButton.listening { background: #c0392b; }
+  #heard {
+    margin-top: 20px;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    min-height: 30px;
+    font-size: 17px;
+    background: white;
+  }
+  #manualEntry { margin-top: 14px; }
+  #manualEntry input, #manualEntry select {
+    font-size: 18px;
+    padding: 8px;
+    width: 60%;
+  }
+  #reviewScreen, #manualEntry { display: none; }
+  #reviewScreen table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    margin-top: 10px;
+  }
+  #reviewScreen td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+    font-size: 15px;
+  }
+  #reviewScreen td.label { color: #666; width: 45%; }
+  #reviewScreen tr { cursor: pointer; }
+  #reviewScreen tr:active { background: #f0f0f0; }
+  .bigBtn {
+    font-size: 20px;
+    padding: 16px;
+    width: 100%;
+    border-radius: 10px;
+    border: none;
+    margin-top: 16px;
+    cursor: pointer;
+  }
+  #submitBtn { background: #111; color: white; }
+  #holeNum { font-size: 14px; color: #888; }
+</style>
+</head>
+<body>
+
+<h2>🎤 Voice Putting Input</h2>
+<div id="holeNum">Hole 1</div>
+<div id="syncBadge">0 pending</div>
+
+<div id="captureScreen">
+  <div id="promptLabel">Field</div>
+  <div id="promptText">Approach Distance (ft)?</div>
+  <div id="status">Ready</div>
+  <button id="micButton">🎤</button>
+  <div id="heard">Say your answer</div>
+  <div id="manualEntry"></div>
+</div>
+
+<div id="reviewScreen">
+  <h3>Review Hole</h3>
+  <table id="reviewTable"></table>
+  <button id="submitBtn" class="bigBtn">✅ Submit (say "submit")</button>
+</div>
+
+<script>
+/* ===================== CONFIG ===================== */
+// TODO: paste your GAS Web App /exec URL here once created
+const SHEET_ENDPOINT = "PASTE_GAS_WEB_APP_URL_HERE";
+const QUEUE_KEY = "voicePuttingQueue";
+
+/* ===================== STATE MACHINE ===================== */
+// Each step: id, label, type ('number' | 'choice'), choices (for choice type), next (id or function)
+const STEPS = {
+  approach:   { label: "Approach Distance (ft)", type: "number", next: () => "gir" },
+  gir:        { label: "GIR Hit?", type: "choice", choices: ["Yes","No"],
+                next: (val) => val === "Yes" ? "putt1_len" : "chipped" },
+  chipped:    { label: "Chipped In?", type: "choice", choices: ["Yes","No"],
+                next: (val) => val === "Yes" ? "totalPutts" : "putt1_len" },
+  putt1_len:  { label: "1st Putt Length (ft)", type: "number", next: () => "putt1_break" },
+  putt1_break:{ label: "1st Putt Break", type: "choice", choices: ["L to R","R to L","None"], next: () => "putt1_outcome" },
+  putt1_outcome:{ label: "1st Putt Outcome", type: "choice", choices: ["Made It","Short","Long Low","Long High"],
+                next: (val) => val === "Made It" ? "totalPutts" : "putt2_len" },
+  putt2_len:  { label: "2nd Putt Length (ft)", type: "number", next: () => "putt2_break" },
+  putt2_break:{ label: "2nd Putt Break", type: "choice", choices: ["L to R","R to L","None"], next: () => "putt2_outcome" },
+  putt2_outcome:{ label: "2nd Putt Outcome", type: "choice", choices: ["Made It","Short","Long Low","Long High"],
+                next: (val) => val === "Made It" ? "totalPutts" : "putt3" },
+  putt3:      { label: "3rd Putt Count", type: "number", next: () => "totalPutts" },
+  totalPutts: { label: "Total Putts", type: "number", next: () => "holeScore" },
+  holeScore:  { label: "Hole Score", type: "number", next: () => "review" }
+};
+
+let currentStep = "approach";
+let holeData = {};
+let holeNumber = 1;
+
+/* ===================== SPEECH RECOGNITION ===================== */
+const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+if (Speech) {
+  recognition = new Speech();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = "en-US";
+
+  recognition.onstart = () => {
+    setStatus("🎤 Listening...");
+    document.getElementById("micButton").classList.add("listening");
+  };
+  recognition.onerror = (e) => setStatus("❌ Error: " + e.error);
+  recognition.onend = () => document.getElementById("micButton").classList.remove("listening");
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    document.getElementById("heard").innerText = transcript;
+    handleAnswer(transcript);
+  };
+} else {
+  setStatus("❌ Speech recognition not supported in this browser.");
+}
+
+document.getElementById("micButton").addEventListener("click", () => {
+  if (currentStep === "review") return; // review uses submit voice separately
+  if (!recognition) { alert("Speech recognition not supported."); return; }
+  setStatus("Starting mic...");
+  recognition.start();
+});
+
+/* ===================== PARSING ===================== */
+const NUM_WORDS = {
+  zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10,
+  eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16, seventeen:17,
+  eighteen:18, nineteen:19, twenty:20, thirty:30, forty:40, fifty:50
+};
+
+function parseNumber(text) {
+  const cleaned = text.toLowerCase().trim();
+  const digitMatch = cleaned.match(/\d+/);
+  if (digitMatch) return parseInt(digitMatch[0], 10);
+  // try word numbers, including compounds like "twenty five"
+  const words = cleaned.replace(/-/g," ").split(" ");
+  let total = 0, found = false;
+  for (const w of words) {
+    if (NUM_WORDS[w] !== undefined) { total += NUM_WORDS[w]; found = true; }
+  }
+  return found ? total : null;
+}
+
+function parseChoice(text, choices) {
+  const cleaned = text.toLowerCase().trim();
+  let best = null, bestScore = 0;
+  for (const choice of choices) {
+    const c = choice.toLowerCase();
+    let score = 0;
+    if (cleaned === c) score = 100;
+    else if (cleaned.includes(c)) score = 50;
+    else {
+      // token overlap fallback
+      const cTokens = c.split(" ");
+      const tTokens = cleaned.split(" ");
+      score = cTokens.filter(t => tTokens.includes(t)).length * 10;
+    }
+    if (score > bestScore) { bestScore = score; best = choice; }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+/* ===================== FLOW CONTROL ===================== */
+function setStatus(msg) { document.getElementById("status").innerText = msg; }
+
+function showStep(stepId) {
+  currentStep = stepId;
+  if (stepId === "review") { showReview(); return; }
+  const step = STEPS[stepId];
+  document.getElementById("promptLabel").innerText = step.type === "number" ? "Enter a number" : "Choose one";
+  document.getElementById("promptText").innerText = step.label + "?";
+  document.getElementById("heard").innerText = "Say your answer";
+  setStatus("Ready");
+  renderManualEntry(step);
+}
+
+function renderManualEntry(step) {
+  const container = document.getElementById("manualEntry");
+  container.style.display = "block";
+  container.innerHTML = "";
+  if (step.type === "number") {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.placeholder = "or type manually";
+    container.appendChild(input);
+    const btn = document.createElement("button");
+    btn.innerText = "OK";
+    btn.onclick = () => { if (input.value !== "") handleAnswer(input.value); };
+    container.appendChild(btn);
+  } else {
+    step.choices.forEach(choice => {
+      const btn = document.createElement("button");
+      btn.innerText = choice;
+      btn.style.margin = "4px";
+      btn.style.fontSize = "14px";
+      btn.style.padding = "8px 10px";
+      btn.onclick = () => handleAnswer(choice);
+      container.appendChild(btn);
+    });
+  }
+}
+
+function handleAnswer(rawText) {
+  const step = STEPS[currentStep];
+  let value;
+  if (step.type === "number") {
+    value = parseNumber(rawText);
+    if (value === null) { setStatus("❌ Couldn't parse a number, try again"); return; }
+  } else {
+    value = parseChoice(rawText, step.choices);
+    if (value === null) { setStatus("❌ Didn't catch that, try again"); return; }
+  }
+  holeData[currentStep] = value;
+  const nextStep = step.next(value);
+  showStep(nextStep);
+}
+
+/* ===================== REVIEW SCREEN ===================== */
+const FIELD_LABELS = {
+  approach: "Approach Distance", gir: "GIR Hit", chipped: "Chipped In",
+  putt1_len: "1st Putt Length", putt1_break: "1st Putt Break", putt1_outcome: "1st Putt Outcome",
+  putt2_len: "2nd Putt Length", putt2_break: "2nd Putt Break", putt2_outcome: "2nd Putt Outcome",
+  putt3: "3rd Putt", totalPutts: "Total Putts", holeScore: "Hole Score"
+};
+
+function showReview() {
+  document.getElementById("captureScreen").style.display = "none";
+  document.getElementById("reviewScreen").style.display = "block";
+  const table = document.getElementById("reviewTable");
+  table.innerHTML = "";
+  Object.keys(holeData).forEach(key => {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td class="label">${FIELD_LABELS[key] || key}</td><td>${holeData[key]}</td>`;
+    row.onclick = () => { document.getElementById("reviewScreen").style.display = "none";
+                           document.getElementById("captureScreen").style.display = "block";
+                           showStep(key); };
+    table.appendChild(row);
+  });
+  setStatus("Review, then tap Submit or say \"submit\"");
+  if (recognition) {
+    recognition.onresult = (event) => {
+      const t = event.results[0][0].transcript.toLowerCase();
+      if (t.includes("submit")) submitHole();
+      else recognition.onresult(event); // fallback ignored
+    };
+  }
+}
+
+document.getElementById("submitBtn").addEventListener("click", submitHole);
+
+function submitHole() {
+  const payload = { hole: holeNumber, timestamp: new Date().toISOString(), ...holeData };
+  queueHole(payload);
+  attemptSync();
+  holeNumber++;
+  holeData = {};
+  document.getElementById("holeNum").innerText = "Hole " + holeNumber;
+  document.getElementById("reviewScreen").style.display = "none";
+  document.getElementById("captureScreen").style.display = "block";
+  // restore normal onresult handler for next hole
+  if (recognition) {
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      document.getElementById("heard").innerText = transcript;
+      handleAnswer(transcript);
+    };
+  }
+  showStep("approach");
+}
+
+/* ===================== OFFLINE QUEUE ===================== */
+function getQueue() {
+  return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
+}
+function saveQueue(q) {
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  updateBadge();
+}
+function queueHole(payload) {
+  const q = getQueue();
+  q.push(payload);
+  saveQueue(q);
+}
+function updateBadge() {
+  const n = getQueue().length;
+  const badge = document.getElementById("syncBadge");
+  badge.innerText = n === 0 ? "✅ All synced" : n + " pending sync";
+  badge.className = n === 0 ? "clear" : "";
+}
+
+async function attemptSync() {
+  if (!navigator.onLine) return;
+  const q = getQueue();
+  if (q.length === 0) return;
+  const remaining = [];
+  for (const item of q) {
+    try {
+      await fetch(SHEET_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(item)
+      });
+      // no-cors/text-plain means we can't read the response reliably;
+      // treat the fetch not throwing as success.
+    } catch (err) {
+      remaining.push(item);
+    }
+  }
+  saveQueue(remaining);
+}
+
+window.addEventListener("online", attemptSync);
+setInterval(attemptSync, 30000);
+updateBadge();
+attemptSync();
+
+/* ===================== SERVICE WORKER (offline page load) ===================== */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+/* ===================== INIT ===================== */
+showStep("approach");
+</script>
+</body>
+</html>
