@@ -1,1 +1,891 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SG:Putting+ Voice</title>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    html, body { background-color: #ffffff; margin: 0; padding: 12px; color: #000000; }
+    .container { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media(min-width: 768px) { .container { grid-template-columns: 1fr 1fr; } }
 
+    .card { background: #ffffff; border: 1.5px solid #000000; border-radius: 8px; padding: 12px; }
+    .card-title { font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #000; padding-bottom: 4px; }
+
+    .form-group { margin-bottom: 10px; }
+    label { display: block; font-size: 11px; font-weight: 700; margin-bottom: 4px; color: #000; }
+
+    input[type="text"], input[type="number"] {
+      width: 100%; padding: 10px; border: 1.5px solid #000; border-radius: 6px;
+      font-size: 14px; font-weight: 600; outline: none; background: #fff; color: #000;
+    }
+    input:focus { border-color: #000; background-color: #fffde7; }
+
+    .btn-group { display: flex; flex-wrap: wrap; gap: 4px; }
+
+    .opt-btn {
+      flex: 1 1 auto; min-width: 48px; padding: 10px 4px;
+      background: #fff; color: #000; border: 1.5px solid #000; border-radius: 6px;
+      font-size: 11px; font-weight: 700; text-align: center;
+      -webkit-user-select: none; user-select: none;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      margin: 0;
+    }
+    .opt-btn.selected { background: #000; color: #fff; border-color: #000; }
+    .opt-btn.wide { flex-basis: 100%; margin-top: 4px; }
+
+    .stepper { display: flex; align-items: center; }
+    .stepper button {
+      width: 40px; height: 38px; background: #fff; color: #000; border: 1.5px solid #000;
+      font-weight: 800; font-size: 16px; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    }
+    .stepper button:first-child { border-radius: 6px 0 0 6px; }
+    .stepper button:last-child { border-radius: 0 6px 6px 0; }
+    .stepper input { border-radius: 0; text-align: center; border-left: none; border-right: none; height: 38px; }
+
+    .action-btn {
+      width: 100%; padding: 14px; background: #000; color: #fff; border: 1.5px solid #000;
+      border-radius: 6px; font-weight: 800; font-size: 14px; text-transform: uppercase;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    }
+    .secondary-btn { background: #fff; color: #000; }
+
+    .status-bar {
+      max-width: 900px; margin: 0 auto 10px auto; font-size: 11px; font-weight: 700;
+      text-align: center; padding: 6px; border-radius: 6px; display: none;
+    }
+    .status-bar.show { display: block; }
+    .status-offline { background: #fff3cd; border: 1.5px solid #856404; color: #856404; }
+    .status-syncing { background: #d1ecf1; border: 1.5px solid #0c5460; color: #0c5460; }
+    .status-synced { background: #d4edda; border: 1.5px solid #155724; color: #155724; }
+
+    /* VOICE CAPTURE CARD */
+    .voice-card {
+      background: #000; color: #fff; border-radius: 8px; padding: 14px;
+      max-width: 900px; margin: 0 auto 12px auto;
+    }
+    .voice-title { font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 8px; }
+    .voice-btn {
+      width: 100%; padding: 16px; background: #fff; color: #000; border: none;
+      border-radius: 6px; font-weight: 800; font-size: 14px; text-transform: uppercase;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    }
+    .voice-btn.listening { background: #d4edda; color: #155724; }
+    .voice-status { font-size: 12px; margin-top: 8px; min-height: 16px; }
+    .voice-transcript {
+      font-size: 13px; margin-top: 8px; padding: 8px; border: 1px dashed #fff;
+      border-radius: 6px; min-height: 20px; word-break: break-word;
+    }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chip {
+      background: #fff; color: #000; border-radius: 6px; padding: 6px 10px;
+      display: flex; flex-direction: column; min-width: 60px;
+    }
+    .chip.bad { background: #f8d7da; color: #721c24; }
+    .chip-label { font-size: 9px; text-transform: uppercase; opacity: 0.7; }
+    .chip-val { font-size: 13px; font-weight: 800; }
+    .voice-confirm-row { display: flex; gap: 8px; margin-top: 10px; }
+    .voice-confirm-row button { flex: 1; }
+
+    /* Summary overlay */
+    #summaryOverlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: #fff; z-index: 999; overflow-y: auto; padding: 16px;
+    }
+    #summaryOverlay.show { display: block; }
+    .summary-title { font-size: 18px; font-weight: 800; text-transform: uppercase; margin-bottom: 14px; text-align: center; }
+    .summary-row {
+      display: flex; justify-content: space-between; padding: 10px 4px;
+      border-bottom: 1px solid #000; font-size: 14px; font-weight: 600;
+    }
+    .summary-row .val { font-weight: 800; }
+  </style>
+</head>
+<body>
+
+<div id="statusBar" class="status-bar"></div>
+
+<!-- VOICE CAPTURE -->
+<div class="voice-card">
+  <div class="voice-title">&bull; Voice putt capture</div>
+  <button type="button" class="voice-btn" id="voiceBtn" onclick="toggleListening()">Tap to speak putts</button>
+  <div class="voice-status" id="voiceStatus">Say: length, break, slope, outcome. Length, outcome. Putts N. Score N.</div>
+  <div class="voice-transcript" id="voiceTranscript" style="display:none;"></div>
+  <div class="chip-row" id="chipRow" style="display:none;"></div>
+  <div class="voice-confirm-row" id="voiceConfirmRow" style="display:none;">
+    <button type="button" class="action-btn secondary-btn" style="background:#fff;" onclick="rejectParse()">Re-record</button>
+    <button type="button" class="action-btn" style="background:#fff; color:#000;" onclick="acceptParse()">Confirm &amp; fill form</button>
+  </div>
+</div>
+
+<div class="container" id="mainForm">
+  <!-- CARD 1: HOLE SETUP -->
+  <div class="card">
+    <div class="card-title"><span>&bull; Hole Setup</span></div>
+
+    <div class="form-group">
+      <label>Round / Course:</label>
+      <input type="text" id="roundName" placeholder="e.g. Superstition Mt">
+    </div>
+
+    <div style="display: flex; gap: 8px;" class="form-group">
+      <div style="flex: 1;">
+        <label>Hole #:</label>
+        <div class="stepper">
+          <button type="button" onclick="adjustHole(-1)">-</button>
+          <input type="number" id="holeNum" value="1" min="1" max="18" readonly>
+          <button type="button" onclick="adjustHole(1)">+</button>
+        </div>
+      </div>
+      <div style="flex: 1.5;">
+        <label>Par:</label>
+        <div class="btn-group" id="parGroup">
+          <button type="button" class="opt-btn" data-val="3" onclick="selectOpt('parGroup', this, 'par', 3)">3</button>
+          <button type="button" class="opt-btn selected" data-val="4" onclick="selectOpt('parGroup', this, 'par', 4)">4</button>
+          <button type="button" class="opt-btn" data-val="5" onclick="selectOpt('parGroup', this, 'par', 5)">5</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>GIR Hit?</label>
+      <div class="btn-group" id="girGroup">
+        <button type="button" class="opt-btn" data-val="Yes" onclick="selectOpt('girGroup', this, 'gir', 'Yes')">Yes</button>
+        <button type="button" class="opt-btn selected" data-val="No" onclick="selectOpt('girGroup', this, 'gir', 'No')">No</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Approach:</label>
+      <div class="btn-group" id="approachGroup">
+        <button type="button" class="opt-btn selected" data-val="0-115" onclick="selectOpt('approachGroup', this, 'approach', '0-115')">0-115</button>
+        <button type="button" class="opt-btn" data-val="116-140" onclick="selectOpt('approachGroup', this, 'approach', '116-140')">116-140</button>
+        <button type="button" class="opt-btn" data-val="141-165" onclick="selectOpt('approachGroup', this, 'approach', '141-165')">141-165</button>
+        <button type="button" class="opt-btn" data-val="166-190" onclick="selectOpt('approachGroup', this, 'approach', '166-190')">166-190</button>
+        <button type="button" class="opt-btn" data-val="191-215" onclick="selectOpt('approachGroup', this, 'approach', '191-215')">191-215</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 2: 1ST PUTT -->
+  <div class="card">
+    <div class="card-title"><span>&bull; 1st Putt</span></div>
+
+    <div class="form-group">
+      <label>Length (ft):</label>
+      <input type="number" id="p1Length" placeholder="e.g. 15" inputmode="numeric">
+    </div>
+
+    <div class="form-group">
+      <label>Break:</label>
+      <div class="btn-group" id="p1BreakGroup">
+        <button type="button" class="opt-btn selected" data-val="None" onclick="selectOpt('p1BreakGroup', this, 'p1Break', 'None')">None</button>
+        <button type="button" class="opt-btn" data-val="L to R" onclick="selectOpt('p1BreakGroup', this, 'p1Break', 'L to R')">L to R</button>
+        <button type="button" class="opt-btn" data-val="R to L" onclick="selectOpt('p1BreakGroup', this, 'p1Break', 'R to L')">R to L</button>
+        <button type="button" class="opt-btn" data-val="Inside Cup" onclick="selectOpt('p1BreakGroup', this, 'p1Break', 'Inside Cup')">Inside Cup</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Slope:</label>
+      <div class="btn-group" id="p1SlopeGroup">
+        <button type="button" class="opt-btn selected" data-val="Flat" onclick="selectOpt('p1SlopeGroup', this, 'p1Slope', 'Flat')">Flat</button>
+        <button type="button" class="opt-btn" data-val="Up Hill" onclick="selectOpt('p1SlopeGroup', this, 'p1Slope', 'Up Hill')">Up Hill</button>
+        <button type="button" class="opt-btn" data-val="Down Hill" onclick="selectOpt('p1SlopeGroup', this, 'p1Slope', 'Down Hill')">Down Hill</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Outcome:</label>
+      <div class="btn-group" id="p1OutcomeGroup">
+        <button type="button" class="opt-btn selected" data-val="Made it" onclick="selectOpt('p1OutcomeGroup', this, 'p1Outcome', 'Made it')">Made it</button>
+        <button type="button" class="opt-btn" data-val="Short" onclick="selectOpt('p1OutcomeGroup', this, 'p1Outcome', 'Short')">Short</button>
+        <button type="button" class="opt-btn" data-val="Missed High" onclick="selectOpt('p1OutcomeGroup', this, 'p1Outcome', 'Missed High')">Missed High</button>
+        <button type="button" class="opt-btn" data-val="Missed Low" onclick="selectOpt('p1OutcomeGroup', this, 'p1Outcome', 'Missed Low')">Missed Low</button>
+        <button type="button" class="opt-btn" data-val="Long High" onclick="selectOpt('p1OutcomeGroup', this, 'p1Outcome', 'Long High')">Long High</button>
+        <button type="button" class="opt-btn" data-val="Long Low" onclick="selectOpt('p1OutcomeGroup', this, 'p1Outcome', 'Long Low')">Long Low</button>
+        <button type="button" class="opt-btn wide" data-val="No Putt, Chipped In" onclick="selectOpt('p1OutcomeGroup', this, 'p1Outcome', 'No Putt, Chipped In')">No Putt, Chipped In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 3: 2ND PUTT (IF APPLICABLE) -->
+  <div class="card">
+    <div class="card-title"><span>&bull; 2nd Putt (If Applicable)</span></div>
+
+    <div class="form-group">
+      <label>Length (ft):</label>
+      <input type="number" id="p2Length" placeholder="Leave blank if 1-putt" inputmode="numeric" oninput="onP2LengthInput()">
+    </div>
+
+    <div class="form-group">
+      <label>Break:</label>
+      <div class="btn-group" id="p2BreakGroup">
+        <button type="button" class="opt-btn selected" data-val="None" onclick="selectOpt('p2BreakGroup', this, 'p2Break', 'None')">None</button>
+        <button type="button" class="opt-btn" data-val="L to R" onclick="selectOpt('p2BreakGroup', this, 'p2Break', 'L to R')">L to R</button>
+        <button type="button" class="opt-btn" data-val="R to L" onclick="selectOpt('p2BreakGroup', this, 'p2Break', 'R to L')">R to L</button>
+        <button type="button" class="opt-btn" data-val="Inside Cup" onclick="selectOpt('p2BreakGroup', this, 'p2Break', 'Inside Cup')">Inside Cup</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Slope:</label>
+      <div class="btn-group" id="p2SlopeGroup">
+        <button type="button" class="opt-btn selected" data-val="Flat" onclick="selectOpt('p2SlopeGroup', this, 'p2Slope', 'Flat')">Flat</button>
+        <button type="button" class="opt-btn" data-val="Up Hill" onclick="selectOpt('p2SlopeGroup', this, 'p2Slope', 'Up Hill')">Up Hill</button>
+        <button type="button" class="opt-btn" data-val="Down Hill" onclick="selectOpt('p2SlopeGroup', this, 'p2Slope', 'Down Hill')">Down Hill</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Outcome:</label>
+      <div class="btn-group" id="p2OutcomeGroup">
+        <button type="button" class="opt-btn selected" data-val="None" onclick="selectOpt('p2OutcomeGroup', this, 'p2Outcome', 'None')">None</button>
+        <button type="button" class="opt-btn" data-val="Made it" onclick="selectOpt('p2OutcomeGroup', this, 'p2Outcome', 'Made it')">Made it</button>
+        <button type="button" class="opt-btn" data-val="Short" onclick="selectOpt('p2OutcomeGroup', this, 'p2Outcome', 'Short')">Short</button>
+        <button type="button" class="opt-btn" data-val="Missed High" onclick="selectOpt('p2OutcomeGroup', this, 'p2Outcome', 'Missed High')">Missed High</button>
+        <button type="button" class="opt-btn" data-val="Missed Low" onclick="selectOpt('p2OutcomeGroup', this, 'p2Outcome', 'Missed Low')">Missed Low</button>
+        <button type="button" class="opt-btn" data-val="Long High" onclick="selectOpt('p2OutcomeGroup', this, 'p2Outcome', 'Long High')">Long High</button>
+        <button type="button" class="opt-btn" data-val="Long Low" onclick="selectOpt('p2OutcomeGroup', this, 'p2Outcome', 'Long Low')">Long Low</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CARD 4: HOLE TOTALS -->
+  <div class="card">
+    <div class="card-title"><span>&bull; Hole Totals</span></div>
+
+    <div class="form-group">
+      <label>Total Putts:</label>
+      <div class="btn-group" id="puttsGroup">
+        <button type="button" class="opt-btn" data-val="0" onclick="selectOpt('puttsGroup', this, 'totalPutts', 0)">0</button>
+        <button type="button" class="opt-btn" data-val="1" onclick="selectOpt('puttsGroup', this, 'totalPutts', 1)">1</button>
+        <button type="button" class="opt-btn selected" data-val="2" onclick="selectOpt('puttsGroup', this, 'totalPutts', 2)">2</button>
+        <button type="button" class="opt-btn" data-val="3" onclick="selectOpt('puttsGroup', this, 'totalPutts', 3)">3</button>
+        <button type="button" class="opt-btn" data-val="4" onclick="selectOpt('puttsGroup', this, 'totalPutts', 4)">4</button>
+        <button type="button" class="opt-btn" data-val="5+" onclick="selectOpt('puttsGroup', this, 'totalPutts', '5+')">5+</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Hole Score:</label>
+      <div class="btn-group" id="scoreGroup">
+        <button type="button" class="opt-btn" data-val="2" onclick="selectOpt('scoreGroup', this, 'score', 2)">2</button>
+        <button type="button" class="opt-btn" data-val="3" onclick="selectOpt('scoreGroup', this, 'score', 3)">3</button>
+        <button type="button" class="opt-btn selected" data-val="4" onclick="selectOpt('scoreGroup', this, 'score', 4)">4</button>
+        <button type="button" class="opt-btn" data-val="5" onclick="selectOpt('scoreGroup', this, 'score', 5)">5</button>
+        <button type="button" class="opt-btn" data-val="6" onclick="selectOpt('scoreGroup', this, 'score', 6)">6</button>
+        <button type="button" class="opt-btn" data-val="7" onclick="selectOpt('scoreGroup', this, 'score', 7)">7</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="max-width: 900px; margin: 12px auto 40px auto; padding: 0 12px;">
+  <button type="button" class="action-btn" id="saveBtn" onclick="saveHoleData()">Save Hole Data</button>
+  <button type="button" class="action-btn secondary-btn" style="margin-top: 8px;" onclick="finishRound()">Finish Round &amp; View Summary</button>
+</div>
+
+<!-- SUMMARY OVERLAY -->
+<div id="summaryOverlay">
+  <div class="summary-title">Round Summary</div>
+  <div id="summaryContent"></div>
+  <button type="button" class="action-btn" style="margin-top:16px;" onclick="closeSummary()">Back to Entry</button>
+</div>
+
+<script>
+  /* ---------- CONFIG ---------- */
+  // TODO: paste your Apps Script Web App URL here after redeploying with doPost added
+  const ENDPOINT_URL = 'https://script.google.com/macros/s/AKfycbx8x_TdGe50T-gbyzpEB3_3Uulm3pRA_ApwrjGb-oYqQFy5BdGllOKTN9bsqLvKi8LYbQ/exec';
+
+  /* ---------- STATE ---------- */
+  let formData = {
+    par: 4,
+    gir: 'No',
+    approach: '0-115',
+    p1Break: 'None',
+    p1Slope: 'Flat',
+    p1Outcome: 'Made it',
+    p2Break: 'None',
+    p2Slope: 'Flat',
+    p2Outcome: 'None',
+    totalPutts: 2,
+    score: 4
+  };
+
+  let scoreManuallySet = false;
+  let optLock = false;
+  const QUEUE_KEY = 'puttingApp_offlineQueue';
+  const SESSION_KEY = 'puttingApp_sessionHoles';
+
+  /* ---------- OPTION BUTTON SELECTION (freeze-safe) ---------- */
+  function selectOpt(groupId, element, field, value) {
+    if (optLock) return;
+    optLock = true;
+
+    const parent = document.getElementById(groupId);
+    parent.querySelectorAll('.opt-btn').forEach(btn => btn.classList.remove('selected'));
+    element.classList.add('selected');
+
+    formData[field] = value;
+
+    if (groupId === 'parGroup' && !scoreManuallySet) {
+      setScoreDisplay(value);
+    }
+    if (groupId === 'scoreGroup') {
+      scoreManuallySet = true;
+    }
+
+    setTimeout(() => { optLock = false; }, 60);
+  }
+
+  function setScoreDisplay(value) {
+    formData.score = value;
+    const scoreParent = document.getElementById('scoreGroup');
+    scoreParent.querySelectorAll('.opt-btn').forEach(btn => {
+      btn.classList.toggle('selected', btn.getAttribute('data-val') == String(value));
+    });
+  }
+
+  function onP2LengthInput() {
+    const val = parseFloat(document.getElementById('p2Length').value);
+    if (!isNaN(val) && val > 0 && val <= 2) {
+      const madeBtn = document.querySelector('#p2OutcomeGroup .opt-btn[data-val="Made it"]');
+      if (madeBtn && !madeBtn.classList.contains('selected')) {
+        selectOpt('p2OutcomeGroup', madeBtn, 'p2Outcome', 'Made it');
+      }
+    }
+  }
+
+  /* ---------- HOLE STEPPER ---------- */
+  function adjustHole(delta) {
+    const el = document.getElementById('holeNum');
+    let val = parseInt(el.value) + delta;
+    if (val >= 1 && val <= 18) el.value = val;
+  }
+
+  /* ==================== VOICE CAPTURE ==================== */
+  const ONES = {zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
+    eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
+  const TENS = {twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+
+  function wordsToNum(text) {
+    const tokens = text.replace(/-/g,' ').split(/\s+/);
+    for (let i = 0; i < tokens.length; i++) {
+      const w = tokens[i];
+      if (TENS[w] !== undefined) {
+        const next = tokens[i+1];
+        if (ONES[next] !== undefined && ONES[next] < 10) return TENS[w] + ONES[next];
+        return TENS[w];
+      }
+      if (ONES[w] !== undefined) return ONES[w];
+    }
+    return null;
+  }
+  function extractLength(clause) {
+    const digitM = clause.match(/(\d+)\s*(feet|ft|foot)?/);
+    if (digitM) return parseInt(digitM[1]);
+    return wordsToNum(clause);
+  }
+  function extractNum(s){
+    const m = s.match(/\d+/);
+    if (m) return parseInt(m[0]);
+    return wordsToNum(s);
+  }
+  function normBreak(s){
+    if(/left to right|l to r|left right/.test(s)) return "L to R";
+    if(/right to left|r to l|right left/.test(s)) return "R to L";
+    if(/inside cup/.test(s)) return "Inside Cup";
+    return "None";
+  }
+  function normSlope(s){
+    if(/up ?hill/.test(s)) return "Up Hill";
+    if(/down ?hill/.test(s)) return "Down Hill";
+    return "Flat";
+  }
+  function normOutcome(s){
+    if(/missed high/.test(s)) return "Missed High";
+    if(/missed low/.test(s)) return "Missed Low";
+    if(/long high/.test(s)) return "Long High";
+    if(/long low/.test(s)) return "Long Low";
+    if(/made it|made/.test(s)) return "Made it";
+    if(/short/.test(s)) return "Short";
+    return null;
+  }
+
+  function parsePhrase(raw) {
+    const text = raw.toLowerCase().trim();
+    const errors = [];
+    const result = { chippedIn: false, p1: {}, p2: null, totalPutts: null, score: null };
+
+    if (!text) { errors.push("Empty phrase."); return {result, errors}; }
+
+    if (/chipped in/.test(text)) {
+      result.chippedIn = true;
+      const puttsMatch = text.match(/putts?\s+([\w-]+)/);
+      result.totalPutts = puttsMatch ? extractNum(puttsMatch[1]) : 0;
+      const scoreMatch = text.match(/score\s+([\w-]+)/);
+      if (scoreMatch) result.score = extractNum(scoreMatch[1]);
+      else errors.push('Missing "Score N".');
+      return {result, errors};
+    }
+
+    const scoreMatch = text.match(/score\s+([\w-]+)/);
+    if (!scoreMatch) {
+      errors.push('Missing "Score N" anchor.');
+      return {result, errors};
+    }
+    result.score = extractNum(scoreMatch[1]);
+
+    const puttsMatch = text.match(/putts?\s+([\w-]+)/);
+    if (!puttsMatch) {
+      errors.push('Missing "Putts N".');
+    } else {
+      result.totalPutts = extractNum(puttsMatch[1]);
+    }
+
+    const beforePutts = puttsMatch ? text.slice(0, puttsMatch.index) : text.slice(0, scoreMatch.index);
+    const clauses = beforePutts.split('.').map(c => c.trim()).filter(Boolean);
+
+    if (clauses.length === 0) {
+      errors.push("No putt detail found.");
+    } else {
+      const p1c = clauses[0];
+      result.p1.length = extractLength(p1c);
+      if (result.p1.length === null) errors.push("P1: could not parse length.");
+      result.p1.break = normBreak(p1c);
+      result.p1.slope = normSlope(p1c);
+      result.p1.outcome = normOutcome(p1c);
+      if (!result.p1.outcome) errors.push("P1: could not parse outcome.");
+
+      if (clauses.length > 1) {
+        const p2c = clauses[1];
+        result.p2 = { length: extractLength(p2c), outcome: normOutcome(p2c) };
+        if (result.p2.length === null) errors.push("P2: could not parse length.");
+        if (!result.p2.outcome) errors.push("P2: could not parse outcome.");
+      }
+    }
+
+    if (result.totalPutts === null) errors.push("Could not parse Putts.");
+    if (result.score === null) errors.push("Could not parse Score.");
+
+    return {result, errors};
+  }
+
+  let recognition = null;
+  let isListening = false;
+  let lastParseResult = null;
+
+  function getRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const r = new SR();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    return r;
+  }
+
+  function toggleListening() {
+    if (isListening) {
+      if (recognition) recognition.stop();
+      return;
+    }
+    startListening();
+  }
+
+  function startListening() {
+    recognition = getRecognition();
+    const btn = document.getElementById('voiceBtn');
+    const status = document.getElementById('voiceStatus');
+    const transcriptBox = document.getElementById('voiceTranscript');
+    const chipRow = document.getElementById('chipRow');
+    const confirmRow = document.getElementById('voiceConfirmRow');
+
+    chipRow.style.display = 'none';
+    confirmRow.style.display = 'none';
+    transcriptBox.style.display = 'none';
+
+    if (!recognition) {
+      status.textContent = 'Voice not supported in this browser — use tap entry below.';
+      return;
+    }
+
+    isListening = true;
+    btn.classList.add('listening');
+    btn.textContent = 'Listening... tap to stop';
+    status.textContent = 'Say your routine now.';
+
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      transcriptBox.style.display = 'block';
+      transcriptBox.textContent = '"' + text + '"';
+      handleParse(text);
+    };
+
+    recognition.onerror = (event) => {
+      status.textContent = 'Mic error: ' + event.error + ' — use tap entry below.';
+      resetVoiceBtn();
+    };
+
+    recognition.onend = () => {
+      resetVoiceBtn();
+    };
+
+    recognition.start();
+  }
+
+  function resetVoiceBtn() {
+    isListening = false;
+    const btn = document.getElementById('voiceBtn');
+    btn.classList.remove('listening');
+    btn.textContent = 'Tap to speak putts';
+  }
+
+  function handleParse(text) {
+    const { result, errors } = parsePhrase(text);
+    lastParseResult = result;
+
+    const status = document.getElementById('voiceStatus');
+    const chipRow = document.getElementById('chipRow');
+    const confirmRow = document.getElementById('voiceConfirmRow');
+
+    status.textContent = errors.length
+      ? 'Some fields need a check before confirming.'
+      : 'Parsed cleanly — review then confirm.';
+
+    let html = '';
+    function chip(label, val, ok) {
+      return '<div class="chip' + (ok ? '' : ' bad') + '"><span class="chip-label">' + label + '</span><span class="chip-val">' + val + '</span></div>';
+    }
+
+    if (result.chippedIn) {
+      html += chip('P1', 'Chipped in', true);
+    } else {
+      html += chip('P1 len', result.p1.length !== null ? result.p1.length + ' ft' : '?', result.p1.length !== null);
+      html += chip('Break', result.p1.break || '?', true);
+      html += chip('Slope', result.p1.slope || '?', true);
+      html += chip('Outcome', result.p1.outcome || '?', !!result.p1.outcome);
+      if (result.p2) {
+        html += chip('P2 len', result.p2.length !== null ? result.p2.length + ' ft' : '?', result.p2.length !== null);
+        html += chip('P2 outcome', result.p2.outcome || '?', !!result.p2.outcome);
+      }
+    }
+    html += chip('Putts', result.totalPutts !== null ? result.totalPutts : '?', result.totalPutts !== null);
+    html += chip('Score', result.score !== null ? result.score : '?', result.score !== null);
+
+    chipRow.innerHTML = html;
+    chipRow.style.display = 'flex';
+    confirmRow.style.display = 'flex';
+  }
+
+  function rejectParse() {
+    document.getElementById('chipRow').style.display = 'none';
+    document.getElementById('voiceConfirmRow').style.display = 'none';
+    document.getElementById('voiceStatus').textContent = 'Discarded — tap to speak again.';
+    lastParseResult = null;
+  }
+
+  function acceptParse() {
+    if (!lastParseResult) return;
+    const r = lastParseResult;
+
+    if (r.chippedIn) {
+      const chipBtn = document.querySelector('#p1OutcomeGroup .opt-btn[data-val="No Putt, Chipped In"]');
+      selectOpt('p1OutcomeGroup', chipBtn, 'p1Outcome', 'No Putt, Chipped In');
+    } else {
+      if (r.p1.length !== null) document.getElementById('p1Length').value = r.p1.length;
+      if (r.p1.break) clickOpt('p1BreakGroup', 'p1Break', r.p1.break);
+      if (r.p1.slope) clickOpt('p1SlopeGroup', 'p1Slope', r.p1.slope);
+      if (r.p1.outcome) clickOpt('p1OutcomeGroup', 'p1Outcome', r.p1.outcome);
+
+      if (r.p2) {
+        if (r.p2.length !== null) document.getElementById('p2Length').value = r.p2.length;
+        if (r.p2.outcome) clickOpt('p2OutcomeGroup', 'p2Outcome', r.p2.outcome);
+      }
+    }
+
+    if (r.totalPutts !== null) clickOpt('puttsGroup', 'totalPutts', String(r.totalPutts));
+    if (r.score !== null) clickOpt('scoreGroup', 'score', r.score);
+
+    document.getElementById('chipRow').style.display = 'none';
+    document.getElementById('voiceConfirmRow').style.display = 'none';
+    document.getElementById('voiceStatus').textContent = 'Form filled — tap Save Hole Data, or correct any field below first.';
+    lastParseResult = null;
+  }
+
+  function clickOpt(groupId, field, value) {
+    const btn = document.querySelector('#' + groupId + ' .opt-btn[data-val="' + value + '"]');
+    if (btn) selectOpt(groupId, btn, field, value);
+  }
+
+  /* ==================== END VOICE CAPTURE ==================== */
+
+  /* ---------- SAVE ---------- */
+  function buildPayload() {
+    return {
+      id: Date.now().toString() + '_' + Math.random().toString(36).slice(2, 8),
+      date: new Date().toISOString(),
+      round: document.getElementById('roundName').value,
+      hole: document.getElementById('holeNum').value,
+      par: formData.par,
+      gir: formData.gir,
+      approach: formData.approach,
+      p1Length: document.getElementById('p1Length').value,
+      p1Break: formData.p1Break,
+      p1Slope: formData.p1Slope,
+      p1Outcome: formData.p1Outcome,
+      p2Length: document.getElementById('p2Length').value,
+      p2Break: formData.p2Break,
+      p2Slope: formData.p2Slope,
+      p2Outcome: formData.p2Outcome,
+      totalPutts: formData.totalPutts,
+      score: formData.score
+    };
+  }
+
+  function saveHoleData() {
+    const payload = buildPayload();
+    addToSession(payload);
+    trySend(payload, false);
+    resetForNextHole();
+  }
+
+  function trySend(payload, isRetry) {
+    if (!navigator.onLine) {
+      queueOffline(payload);
+      showStatus('Saved offline — will sync when connected.', 'status-offline');
+      return;
+    }
+
+    fetch(ENDPOINT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status !== 'Success') throw new Error(data.message || 'Unknown error');
+        if (isRetry) {
+          showStatus('Synced!', 'status-synced');
+          setTimeout(hideStatus, 2000);
+        }
+      })
+      .catch(() => {
+        queueOffline(payload);
+        showStatus('Save failed — queued offline.', 'status-offline');
+      });
+  }
+
+  /* ---------- OFFLINE QUEUE ---------- */
+  function queueOffline(payload) {
+    const queue = getQueue();
+    if (!queue.find(item => item.id === payload.id)) {
+      queue.push(payload);
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    }
+  }
+  function getQueue() {
+    try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; }
+    catch (e) { return []; }
+  }
+  function syncQueue() {
+    const queue = getQueue();
+    if (queue.length === 0 || !navigator.onLine) return;
+    showStatus('Syncing ' + queue.length + ' hole(s)...', 'status-syncing');
+    const remaining = [...queue];
+    function sendNext() {
+      if (remaining.length === 0) {
+        localStorage.setItem(QUEUE_KEY, JSON.stringify([]));
+        showStatus('All holes synced!', 'status-synced');
+        setTimeout(hideStatus, 2000);
+        return;
+      }
+      const item = remaining.shift();
+      fetch(ENDPOINT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(item)
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.status !== 'Success') throw new Error(data.message || 'Unknown error');
+          localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+          sendNext();
+        })
+        .catch(() => {
+          localStorage.setItem(QUEUE_KEY, JSON.stringify([item, ...remaining]));
+          showStatus('Sync paused — will retry.', 'status-offline');
+        });
+    }
+    sendNext();
+  }
+  window.addEventListener('online', syncQueue);
+
+  function showStatus(msg, cls) {
+    const bar = document.getElementById('statusBar');
+    bar.className = 'status-bar show ' + cls;
+    bar.textContent = msg;
+  }
+  function hideStatus() {
+    document.getElementById('statusBar').className = 'status-bar';
+  }
+
+  /* ---------- RESET AFTER SAVE ---------- */
+  function resetForNextHole() {
+    document.getElementById('p1Length').value = '';
+    document.getElementById('p2Length').value = '';
+
+    resetGroupTo('girGroup', 'gir', 'No');
+    resetGroupTo('p1BreakGroup', 'p1Break', 'None');
+    resetGroupTo('p1SlopeGroup', 'p1Slope', 'Flat');
+    resetGroupTo('p1OutcomeGroup', 'p1Outcome', 'Made it');
+    resetGroupTo('p2BreakGroup', 'p2Break', 'None');
+    resetGroupTo('p2SlopeGroup', 'p2Slope', 'Flat');
+    resetGroupTo('p2OutcomeGroup', 'p2Outcome', 'None');
+    resetGroupTo('puttsGroup', 'totalPutts', 2);
+
+    scoreManuallySet = false;
+    setScoreDisplay(formData.par);
+
+    document.getElementById('voiceStatus').textContent = 'Say: length, break, slope, outcome. Length, outcome. Putts N. Score N.';
+    document.getElementById('voiceTranscript').style.display = 'none';
+
+    adjustHole(1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const holeNum = parseInt(document.getElementById('holeNum').value);
+    if (holeNum >= 18) {
+      setTimeout(finishRound, 300);
+    }
+  }
+
+  function resetGroupTo(groupId, field, value) {
+    formData[field] = value;
+    const parent = document.getElementById(groupId);
+    parent.querySelectorAll('.opt-btn').forEach(btn => {
+      btn.classList.toggle('selected', btn.getAttribute('data-val') == String(value));
+    });
+  }
+
+  /* ---------- SESSION TRACKING FOR SUMMARY ---------- */
+  function addToSession(payload) {
+    const session = getSession();
+    session.push(payload);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  }
+  function getSession() {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY)) || []; }
+    catch (e) { return []; }
+  }
+
+  /* ---------- SG EXPECTED STROKES ---------- */
+  const SCRATCH_EXPECTED_STROKES = [
+    [1, 1.00], [2, 1.01], [3, 1.08], [4, 1.12], [5, 1.20],
+    [6, 1.28], [7, 1.36], [8, 1.50], [9, 1.58], [10, 1.65],
+    [12, 1.72], [14, 1.78], [16, 1.82], [18, 1.86], [20, 1.96],
+    [25, 2.03], [30, 2.10], [35, 2.17], [40, 2.25], [45, 2.30],
+    [50, 2.35], [60, 2.43], [70, 2.50], [80, 2.55], [90, 2.60],
+    [100, 2.65]
+  ];
+  function expectedStrokes(distanceFt) {
+    const curve = SCRATCH_EXPECTED_STROKES;
+    if (distanceFt <= curve[0][0]) return curve[0][1];
+    if (distanceFt >= curve[curve.length - 1][0]) return curve[curve.length - 1][1];
+    for (let i = 0; i < curve.length - 1; i++) {
+      const d1 = curve[i][0], s1 = curve[i][1];
+      const d2 = curve[i + 1][0], s2 = curve[i + 1][1];
+      if (distanceFt >= d1 && distanceFt <= d2) {
+        const fraction = (distanceFt - d1) / (d2 - d1);
+        return s1 + fraction * (s2 - s1);
+      }
+    }
+    return curve[curve.length - 1][1];
+  }
+  function trimmedMean(values) {
+    if (values.length === 0) return null;
+    if (values.length <= 3) return values.reduce((a, b) => a + b, 0) / values.length;
+    const sorted = [...values].sort((a, b) => a - b);
+    const trimmed = sorted.slice(1, sorted.length - 1);
+    return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+  }
+
+  /* ---------- ROUND SUMMARY ---------- */
+  function finishRound() {
+    const session = getSession();
+    if (session.length === 0) {
+      alert('No holes recorded yet this round.');
+      return;
+    }
+
+    let totalScore = 0, totalPutts = 0, totalFtPuttsMade = 0, girCount = 0;
+    const girProximities = [];
+    let sgSum = 0, sgHoles = 0;
+
+    session.forEach(h => {
+      const score = Number(h.score) || 0;
+      totalScore += score;
+
+      const chippedIn = h.p1Outcome === 'No Putt, Chipped In';
+      const puttsRaw = h.totalPutts === '5+' ? 5 : Number(h.totalPutts) || 0;
+      const putts = chippedIn ? 0 : puttsRaw;
+      totalPutts += putts;
+
+      if (!chippedIn && h.p1Outcome === 'Made it') totalFtPuttsMade += Number(h.p1Length) || 0;
+      if (h.p2Outcome === 'Made it' && h.p2Length !== '') totalFtPuttsMade += Number(h.p2Length) || 0;
+
+      if (h.gir === 'Yes') {
+        girCount++;
+        const p1Len = Number(h.p1Length) || 0;
+        if (p1Len > 0) girProximities.push(p1Len);
+      }
+
+      const p1LenForSG = Number(h.p1Length) || 0;
+      if (!chippedIn && p1LenForSG > 0 && puttsRaw > 0) {
+        sgSum += expectedStrokes(p1LenForSG) - puttsRaw;
+        sgHoles++;
+      }
+    });
+
+    const holesPlayed = session.length;
+    const girPct = holesPlayed > 0 ? (girCount / holesPlayed * 100) : 0;
+    const proximityAvg = trimmedMean(girProximities);
+    const sgTotal = sgHoles > 0 ? sgSum : null;
+
+    const rows = [
+      ['Holes Recorded', holesPlayed],
+      ['Score', totalScore],
+      ['Total Putts', totalPutts],
+      ['Total Ft. Putts Made', totalFtPuttsMade],
+      ['GIR Count', girCount + ' / ' + holesPlayed],
+      ['GIR %', girPct.toFixed(1) + '%'],
+      ['1st Putt Proximity (GIR holes)', proximityAvg !== null ? proximityAvg.toFixed(1) + ' ft' : 'N/A'],
+      ['SG: Putting vs. Scratch', sgTotal !== null ? (sgTotal >= 0 ? '+' : '') + sgTotal.toFixed(2) : 'N/A']
+    ];
+
+    const content = document.getElementById('summaryContent');
+    content.innerHTML = rows.map(r =>
+      '<div class="summary-row"><span>' + r[0] + '</span><span class="val">' + r[1] + '</span></div>'
+    ).join('');
+
+    document.getElementById('summaryOverlay').classList.add('show');
+    window.scrollTo({ top: 0 });
+  }
+
+  function closeSummary() {
+    document.getElementById('summaryOverlay').classList.remove('show');
+  }
+
+  /* ---------- STARTUP ---------- */
+  document.addEventListener('DOMContentLoaded', () => {
+    if (navigator.onLine) syncQueue();
+    const q = getQueue();
+    if (q.length > 0) {
+      showStatus(q.length + ' hole(s) waiting to sync.', 'status-offline');
+    }
+  });
+</script>
+</body>
+</html>
